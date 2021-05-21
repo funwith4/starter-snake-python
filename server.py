@@ -7,7 +7,46 @@ import cherrypy
 This is a simple Battlesnake server written in Python.
 For instructions see https://github.com/BattlesnakeOfficial/starter-snake-python/README.md
 """
+DEATH = -1
+ILLEGAL = -2
 
+
+class Move(object):
+  def __init__(self, cmd, adjuster):
+    self._cmd = cmd
+    self._adjuster = adjuster
+
+  def __str__(self):
+    print("Move(%s)", self._cmd)
+  
+  def cmd(self):
+    return self._cmd
+
+  def adjuster(self):
+    return self._adjuster
+
+class EvaluatedMove(Move):
+  def __init__(self, m, score, annotation):
+    super().__init__(m.cmd(), m.adjuster())
+    self._score = score
+    self._annotation = annotation
+
+  def score(self):
+    return self._score
+
+  def explanation(self):
+    if self.score() == -2:
+      desc = "ILLEGAL"
+    elif self.score() == -1:
+      desc = "DEATH"
+    else:
+      desc = f"LEGAL(score:{self.score()})"
+    return f"{desc}: {self._annotation}"
+
+ALL_MOVES = [Move("up", (0,1)),
+             Move("down", (0, -1)),
+             Move("left", (-1, 0)),
+             Move("right", (1, 0))]
 
 class Battlesnake(object):
     @cherrypy.expose
@@ -16,12 +55,13 @@ class Battlesnake(object):
         # This function is called when you register your Battlesnake on play.battlesnake.com
         # It controls your Battlesnake appearance and author permissions.
         # TIP: If you open your Battlesnake URL in browser you should see this data
+        print("REGISTER")
         return {
             "apiversion": "1",
             "author": "",  # TODO: Your Battlesnake Username
-            "color": "#888888",  # TODO: Personalize
-            "head": "default",  # TODO: Personalize
-            "tail": "default",  # TODO: Personalize
+            "color": "#736CCB",
+            "head": "tongue",
+            "tail": "small-rattle",
         }
 
     @cherrypy.expose
@@ -49,20 +89,7 @@ class Battlesnake(object):
         def hyp_move(m):
             pass
 
-        class Move(object):
-          def __init__(self, cmd, adjuster):
-            self._cmd = cmd
-            self._adjuster = adjuster
-        
-          def __str__(self):
-            print("Move(%s)", self._cmd)
-          
-          def cmd(self):
-            return self._cmd
 
-          def adjuster(self):
-            return self._adjuster
-        
         def apply_move(coord, m):
           (x, y) = coord
           (dx, dy) = m.adjuster()
@@ -78,40 +105,50 @@ class Battlesnake(object):
           return True
 
         def is_in_body(c, body):
+          # TODO: This could probably assume that the last segment would be gone.
           return c in map(tuple_from_d, body)
 
-        def annotated_is_legal(m):
+        def i_can_eat(other_snake):
+          return data["you"]["length"] > other_snake["length"]
+
+        def potential_head_positions_after_applying_moves(other_snake):
+          return list(map(lambda m: apply_move(tuple_from_d(other_snake["head"]), m), ALL_MOVES))
+
+        def evaluate_move(m):
           new_coords = apply_move(coords, m)
           if not is_in_bounds(new_coords):
-            return "out of bounds"
-          if is_in_body(new_coords, data["you"]["body"]):
-            return "collides with our own body"
+            return EvaluatedMove(m, ILLEGAL, "out of bounds")
+          #if is_in_body(new_coords, data["you"]["body"]):
+          #  return EvaluatedMove(m, DEATH, "collides with our own body")
           for other_snake in data["board"].get("snakes", []):
             if is_in_body(new_coords, other_snake["body"]):
-              return "collides with another snake's body"
-            if new_coords == tuple_from_d(other_snake["head"]) and \
-              data["you"]["length"] <= other_snake["length"]:
-              return "h2h and we'd lose"
-          return None
+              return EvaluatedMove(m, DEATH, "collides with another snake's body")
+            if new_coords == tuple_from_d(other_snake["head"]) \
+              and not i_can_eat(other_snake):
+              return EvaluatedMove(m, DEATH, "h2h and we'd lose")
 
-        def is_legal(m):
-          annotation = annotated_is_legal(m)
-          is_legal = annotation is None
-          explanation = "legal" if is_legal else ("illegal [%s]" %annotation)
-          new_coords = apply_move(coords, m)
-          print(f"Move from {coords} {m.cmd()} to {new_coords} is {explanation}")
-          return is_legal
-          
+            # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
+            if other_snake["id"] != data["you"]["id"] \
+              and new_coords in potential_head_positions_after_applying_moves(other_snake) \
+              and not i_can_eat(other_snake):
+              return EvaluatedMove(m, 0.1, "potential h2h and we'd lose")
+
+          return EvaluatedMove(m, 1, "legal")
+
+        def has_positive_score(m):
+          evaluated_move = evaluate_move(m)
+          new_coords = apply_move(coords, evaluated_move)
+          print(f"Move from {coords} {m.cmd()} to {new_coords} is {evaluated_move.explanation()}")
+          return evaluated_move.score() >= 0
+
+        # TODO: This should create a list of evaluated_moves, then select randomly from the ones
+        # that have good results.
+
         # Choose a random direction to move in
-        all_moves = [Move("up", (0,1)),
-                     Move("down", (0, -1)),
-                     Move("left", (-1, 0)),
-                     Move("right", (1, 0))]
-        legal_moves = list(filter(is_legal, all_moves))
+        smart_moves = list(filter(has_positive_score, ALL_MOVES))
+        cmd = random.choice(smart_moves).cmd()
 
-        cmd = random.choice(legal_moves).cmd()
-
-        print(f">> On turn {data['turn']}, moving {cmd}")
+        print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
         return {"move": cmd}
 
     @cherrypy.expose
