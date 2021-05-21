@@ -43,12 +43,76 @@ class Battlesnake(object):
         # TODO: Use the information in cherrypy.request.json to decide your next move.
         data = cherrypy.request.json
 
-        # Choose a random direction to move in
-        possible_moves = ["up", "down", "left", "right"]
-        move = random.choice(possible_moves)
+        def tuple_from_d(coord_dict):
+          return (coord_dict["x"], coord_dict["y"])
+        
+        def hyp_move(m):
+            pass
 
-        print(f"MOVE: {move}")
-        return {"move": move}
+        class Move(object):
+          def __init__(self, cmd, adjuster):
+            self._cmd = cmd
+            self._adjuster = adjuster
+        
+          def __str__(self):
+            print("Move(%s)", self._cmd)
+          
+          def cmd(self):
+            return self._cmd
+
+          def adjuster(self):
+            return self._adjuster
+        
+        def apply_move(coord, m):
+          (x, y) = coord
+          (dx, dy) = m.adjuster()
+          return ((x+dx), (y+dy))
+
+        (h, w) = (data["board"]["height"], data["board"]["width"])
+        coords = tuple_from_d(data["you"]["head"])
+        
+        def is_in_bounds(c):
+          (x, y) = c
+          if x < 0 or x >= w: return False
+          if y < 0 or y >= h: return False
+          return True
+
+        def is_in_body(c, body):
+          return c in map(tuple_from_d, body)
+
+        def annotated_is_legal(m):
+          new_coords = apply_move(coords, m)
+          if not is_in_bounds(new_coords):
+            return "out of bounds"
+          if is_in_body(new_coords, data["you"]["body"]):
+            return "collides with our own body"
+          for other_snake in data["board"].get("snakes", []):
+            if is_in_body(new_coords, other_snake["body"]):
+              return "collides with another snake's body"
+            if new_coords == tuple_from_d(other_snake["head"]) and \
+              data["you"]["length"] <= other_snake["length"]:
+              return "h2h and we'd lose"
+          return None
+
+        def is_legal(m):
+          annotation = annotated_is_legal(m)
+          is_legal = annotation is None
+          explanation = "legal" if is_legal else ("illegal [%s]" %annotation)
+          new_coords = apply_move(coords, m)
+          print(f"Move from {coords} {m.cmd()} to {new_coords} is {explanation}")
+          return is_legal
+          
+        # Choose a random direction to move in
+        all_moves = [Move("up", (0,1)),
+                     Move("down", (0, -1)),
+                     Move("left", (-1, 0)),
+                     Move("right", (1, 0))]
+        legal_moves = list(filter(is_legal, all_moves))
+
+        cmd = random.choice(legal_moves).cmd()
+
+        print(f">> On turn {data['turn']}, moving {cmd}")
+        return {"move": cmd}
 
     @cherrypy.expose
     @cherrypy.tools.json_in()
