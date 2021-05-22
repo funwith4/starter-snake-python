@@ -9,7 +9,7 @@ For instructions see https://github.com/BattlesnakeOfficial/starter-snake-python
 """
 DEATH = -1
 ILLEGAL = -2
-
+STUCK = 0.1
 
 class Move(object):
   def __init__(self, cmd, adjuster):
@@ -42,6 +42,9 @@ class EvaluatedMove(Move):
     else:
       desc = f"LEGAL(score:{self.score()})"
     return f"{desc}: {self._annotation}"
+
+  def __str__(self):
+    return f"Move {self.cmd()} is {self.explanation()}"
 
 ALL_MOVES = [Move("up", (0,1)),
              Move("down", (0, -1)),
@@ -85,10 +88,6 @@ class Battlesnake(object):
 
         def tuple_from_d(coord_dict):
           return (coord_dict["x"], coord_dict["y"])
-        
-        def hyp_move(m):
-            pass
-
 
         def apply_move(coord, m):
           (x, y) = coord
@@ -114,13 +113,17 @@ class Battlesnake(object):
         def potential_head_positions_after_applying_moves(other_snake):
           return list(map(lambda m: apply_move(tuple_from_d(other_snake["head"]), m), ALL_MOVES))
 
-        def evaluate_move(m):
+        def evaluate_move(coords, m, depth=0):
           new_coords = apply_move(coords, m)
+          
           if not is_in_bounds(new_coords):
             return EvaluatedMove(m, ILLEGAL, "out of bounds")
-          #if is_in_body(new_coords, data["you"]["body"]):
-          #  return EvaluatedMove(m, DEATH, "collides with our own body")
+          if is_in_body(new_coords, data["you"]["body"]):
+            return EvaluatedMove(m, DEATH, "collides with our own body")
+          
           for other_snake in data["board"].get("snakes", []):
+            # NB: We ourselves are an 'other_snake'.
+            if other_snake["id"] == data["you"]["id"]: continue
             if is_in_body(new_coords, other_snake["body"]):
               return EvaluatedMove(m, DEATH, "collides with another snake's body")
             if new_coords == tuple_from_d(other_snake["head"]) \
@@ -128,26 +131,35 @@ class Battlesnake(object):
               return EvaluatedMove(m, DEATH, "h2h and we'd lose")
 
             # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
-            if other_snake["id"] != data["you"]["id"] \
-              and new_coords in potential_head_positions_after_applying_moves(other_snake) \
-              and not i_can_eat(other_snake):
-              return EvaluatedMove(m, 0.1, "potential h2h and we'd lose")
+            if new_coords in potential_head_positions_after_applying_moves(other_snake):
+              if i_can_eat(other_snake):
+                # This doesn't take food into account.
+                return EvaluatedMove(m, 2, "potential h2h and we'd win")
+              else:
+                return EvaluatedMove(m, 0.2, "potential h2h and we'd lose")
+
+          if depth < 3 and all(map(lambda m: evaluate_move(new_coords, m, depth+1).score() <= STUCK, ALL_MOVES)):
+            return EvaluatedMove(m, STUCK, "looks like we're stuck")
+            #  print(f"-- From {new_coords}, {m1}")
 
           return EvaluatedMove(m, 1, "legal")
 
-        def has_positive_score(m):
-          evaluated_move = evaluate_move(m)
+        def instrumented_evaluate_move(coords, m):
+          evaluated_move = evaluate_move(coords, m)
           new_coords = apply_move(coords, evaluated_move)
           print(f"Move from {coords} {m.cmd()} to {new_coords} is {evaluated_move.explanation()}")
-          return evaluated_move.score() >= 0
+          return evaluated_move
 
         # TODO: This should create a list of evaluated_moves, then select randomly from the ones
         # that have good results.
 
         # Choose a random direction to move in
-        smart_moves = list(filter(has_positive_score, ALL_MOVES))
+        evaluated_moves = list(sorted(map(lambda m: instrumented_evaluate_move(coords, m), ALL_MOVES), key=lambda m: m.score(), reverse=True))
+        smart_moves = list(filter(lambda m: m.score() >= evaluated_moves[0].score(), evaluated_moves))
         cmd = random.choice(smart_moves).cmd()
 
+        # Go 10 moves of our own, evaluating the 4 moves each time.
+        # Each of those will require 1 movement of each other snake. Choose the best one.
         print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
         return {"move": cmd}
 
