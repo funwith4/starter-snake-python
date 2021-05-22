@@ -153,7 +153,7 @@ class Battlesnake(object):
               n = q.pop(0)
               if not n in grid:
                 grid[n] = 1
-                print(f"     considering {n} in the area") 
+                #print(f"     considering {n} in the area") 
                 cnt += 1
                 if cnt >= cap: return cnt
                 for nc in map(lambda m: apply_move(n, m),  ALL_MOVES):
@@ -163,10 +163,12 @@ class Battlesnake(object):
 
           length = data["you"]["length"]
           area = capped_flood_count(new_coords, length)
-          print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
+          #print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
           
           if length > area:
-            return EvaluatedMove(m, STUCK, "not going in there, looks like we'll get stuck")
+            # boost the score by the area, so if we're running out of space
+            # we choose the biggest space.
+            return EvaluatedMove(m, STUCK + 0.001 * area, "not going in there, looks like we'll get stuck")
           #Recursive evaluation, but not as good as flood_fill.
           #if depth < 3 and all(map(lambda m: evaluate_move(new_coords, m, depth+1).score() <= STUCK, ALL_MOVES)):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
