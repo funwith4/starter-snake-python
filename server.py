@@ -16,6 +16,7 @@ DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
 ILLEGAL = -2
 STUCK = 0.1
+LOW_HEALTH_THRESHOLD = 20;
 
 class Move(object):
   def __init__(self, cmd, adjuster):
@@ -123,6 +124,15 @@ class Battlesnake(object):
         def potential_head_positions_after_applying_moves(other_snake):
           return list(map(lambda m: apply_move(tuple_from_d(other_snake["head"]), m), ALL_MOVES))
 
+        def delta(coord1, coord2):
+          (x1, y1) = coord1
+          (x2, y2) = coord2
+          return (x1 - x2, y1 - y2)
+
+        def moves(delta):
+          (dx, dy) = delta
+          return dx + dy
+
         def previous_move(snake):
           body = snake["body"]  # The first point in the body is the head.
           if len(body) < 2: return None
@@ -144,8 +154,11 @@ class Battlesnake(object):
           new_coords = apply_move(coords, m)
           
           # TODO:
-          #  - We have a bug where we may return an EvaluatedMove, but not realize that EvaluatedMove is into a too-small area, because we didn't fall through to the fill_count. We should probably apply score mods due to area risk afterwards.
-          #  - Assume h2h collisions are more likely if the other snake moves forward.
+          #  - We had a bug where we may return an EvaluatedMove, but didn't realize that move put us in to a too-small area, because we didn't fall through to the fill_count.
+          #    - Now we've moved the flood_count after DEATH checks, but ahead of the "other_snake" evaluations. 
+          #    - TODO: If we _know_ the other_snake is going there and we definitely win, it's good.
+          #    - If the other_snake might go somewhere else, we need to discount the score.
+          #    
           #  - Find food if health is low.
           #  - Avoid food when value is low (high health, no other snakes, short snakes).
 
@@ -153,28 +166,11 @@ class Battlesnake(object):
             return EvaluatedMove(m, ILLEGAL, "out of bounds")
           if is_in_body(new_coords, data["you"]["body"]):
             return EvaluatedMove(m, DEATH, "collides with our own body")
-          
           for other_snake in data["board"].get("snakes", []):
             # NB: We ourselves are an 'other_snake'.
             if other_snake["id"] == data["you"]["id"]: continue
             if is_in_body(new_coords, other_snake["body"]):
               return EvaluatedMove(m, DEATH, "collides with another snake's body")
-
-            # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
-
-            # print(f"OtherSnake: {other_snake['head']}, ProjectedCoords:{apply_move(tuple_from_d(other_snake['head']), previous_move(other_snake))}")
-
-            if new_coords in potential_head_positions_after_applying_moves(other_snake):
-              if i_can_eat(other_snake):
-                # TODO: This doesn't take food into account.
-                return EvaluatedMove(m, 2, "potential h2h and we'd win")
-              else:
-                # All things equal, we'll assume it's more likely that the other snake moves in the same direction.
-                if new_coords == apply_move(tuple_from_d(other_snake["head"]), previous_move(other_snake)):
-                  return EvaluatedMove(m, 0.21, "potential h2h and we'd lose (constant direction)")
-                else:
-                  return EvaluatedMove(m, 0.22, "potential h2h and we'd lose")
-                raise RuntimeError("Inspect me")
 
           # Use flood-fill to compute space around new_coords.
           # Don't go there if space < length.
@@ -201,7 +197,7 @@ class Battlesnake(object):
 
           length = data["you"]["length"]
 
-          # We *2 as some arbitrary "we need space" metric.          
+          # We *2 as some arbitrary "we need space" metric.   
           length_with_overhead = length * 2
 
           area = capped_flood_count(new_coords, length_with_overhead)
@@ -216,6 +212,26 @@ class Battlesnake(object):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
             #  print(f"-- From {new_coords}, {m1}")
 
+          for other_snake in data["board"].get("snakes", []):
+            # NB: We ourselves are an 'other_snake'.
+            if other_snake["id"] == data["you"]["id"]: continue
+
+            # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
+
+            # print(f"OtherSnake: {other_snake['head']}, ProjectedCoords:{apply_move(tuple_from_d(other_snake['head']), previous_move(other_snake))}")
+
+            if new_coords in potential_head_positions_after_applying_moves(other_snake):
+              if i_can_eat(other_snake):
+                # TODO: This doesn't take food into account.
+                return EvaluatedMove(m, 2, "potential h2h and we'd win")
+              else:
+                # All things equal, we'll assume it's more likely that the other snake moves in the same direction.
+                if new_coords == apply_move(tuple_from_d(other_snake["head"]), previous_move(other_snake)):
+                  return EvaluatedMove(m, 0.21, "potential h2h and we'd lose (constant direction)")
+                else:
+                  return EvaluatedMove(m, 0.22, "potential h2h and we'd lose")
+                raise RuntimeError("Inspect me")
+
           return EvaluatedMove(m, 1, "legal")
 
         def instrumented_evaluate_move(coords, m):
@@ -227,7 +243,6 @@ class Battlesnake(object):
         # Evaluate the possible moves to find smart ones.
         evaluated_moves = list(sorted(map(lambda m: instrumented_evaluate_move(coords, m), ALL_MOVES), key=lambda m: m.score(), reverse=True))
         smart_moves = list(filter(lambda m: m.score() >= evaluated_moves[0].score(), evaluated_moves))
-        # From the smart moves, choose a random direction to move in
         cmd = random.choice(smart_moves).cmd()
 
         # Go 10 moves of our own, evaluating the 4 moves each time.
