@@ -7,6 +7,11 @@ import cherrypy
 This is a simple Battlesnake server written in Python.
 For instructions see https://github.com/BattlesnakeOfficial/starter-snake-python/README.md
 """
+
+# Debug mode is more willing to raise errors.
+DEBUG = 1
+
+
 DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
 ILLEGAL = -2
@@ -25,6 +30,10 @@ class Move(object):
 
   def adjuster(self):
     return self._adjuster
+  
+  def __eq__(self, other):
+    if not isinstance(other, self.__class__): return False
+    return self._cmd == other._cmd and self._adjuster == other._adjuster  
 
 class EvaluatedMove(Move):
   def __init__(self, m, score, annotation):
@@ -63,7 +72,7 @@ class Battlesnake(object):
         return {
             "apiversion": "1",
             "author": "",  # TODO: Your Battlesnake Username
-            "color": "#736CCB",
+            "color": "#22c710",
             "head": "tongue",
             "tail": "small-rattle",
         }
@@ -114,11 +123,32 @@ class Battlesnake(object):
         def potential_head_positions_after_applying_moves(other_snake):
           return list(map(lambda m: apply_move(tuple_from_d(other_snake["head"]), m), ALL_MOVES))
 
+        def previous_move(snake):
+          body = snake["body"]  # The first point in the body is the head.
+          if len(body) < 2: return None
+          (head_x, head_y) = tuple_from_d(body[0])
+          (prior_head_x, prior_head_y) = tuple_from_d(body[1])
+          delta = (head_x - prior_head_x, head_y - prior_head_y)
+          for m in ALL_MOVES:
+            if delta == m.adjuster(): return m
+          if DEBUG:
+            raise RuntimeError(f"Unable to determine previous move from body: {body}, delta: {delta}")
+          return None
+    
+        def apply_move(coord, m):
+          (x, y) = coord
+          (dx, dy) = m.adjuster()
+          return ((x+dx), (y+dy))
+
         def evaluate_move(coords, m, depth=0):
           new_coords = apply_move(coords, m)
           
           # TODO:
-          #  - 
+          #  - We have a bug where we may return an EvaluatedMove, but not realize that EvaluatedMove is into a too-small area, because we didn't fall through to the fill_count. We should probably apply score mods due to area risk afterwards.
+          #  - Assume h2h collisions are more likely if the other snake moves forward.
+          #  - Find food if health is low.
+          #  - Avoid food when value is low (high health, no other snakes, short snakes).
+
           if not is_in_bounds(new_coords):
             return EvaluatedMove(m, ILLEGAL, "out of bounds")
           if is_in_body(new_coords, data["you"]["body"]):
@@ -129,17 +159,22 @@ class Battlesnake(object):
             if other_snake["id"] == data["you"]["id"]: continue
             if is_in_body(new_coords, other_snake["body"]):
               return EvaluatedMove(m, DEATH, "collides with another snake's body")
-            if new_coords == tuple_from_d(other_snake["head"]) \
-              and not i_can_eat(other_snake):
-              return EvaluatedMove(m, DEATH, "h2h and we'd lose")
 
             # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
+
+            # print(f"OtherSnake: {other_snake['head']}, ProjectedCoords:{apply_move(tuple_from_d(other_snake['head']), previous_move(other_snake))}")
+
             if new_coords in potential_head_positions_after_applying_moves(other_snake):
               if i_can_eat(other_snake):
                 # TODO: This doesn't take food into account.
                 return EvaluatedMove(m, 2, "potential h2h and we'd win")
               else:
-                return EvaluatedMove(m, 0.2, "potential h2h and we'd lose")
+                # All things equal, we'll assume it's more likely that the other snake moves in the same direction.
+                if new_coords == apply_move(tuple_from_d(other_snake["head"]), previous_move(other_snake)):
+                  return EvaluatedMove(m, 0.21, "potential h2h and we'd lose (constant direction)")
+                else:
+                  return EvaluatedMove(m, 0.22, "potential h2h and we'd lose")
+                raise RuntimeError("Inspect me")
 
           # Use flood-fill to compute space around new_coords.
           # Don't go there if space < length.
@@ -165,9 +200,10 @@ class Battlesnake(object):
             return cnt
 
           length = data["you"]["length"]
+
+          # We *2 as some arbitrary "we need space" metric.          
           length_with_overhead = length * 2
-          # We +2 for head and the spot used by new_coords.
-          # We *2 as some arbitrary "we need space" metric.
+
           area = capped_flood_count(new_coords, length_with_overhead)
           # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
           
@@ -180,10 +216,6 @@ class Battlesnake(object):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
             #  print(f"-- From {new_coords}, {m1}")
 
-          # TODO: Find food if health is low.
-          # TODO: Avoid food when value is low (no other snakes, short snakes).
-          # 
-
           return EvaluatedMove(m, 1, "legal")
 
         def instrumented_evaluate_move(coords, m):
@@ -192,12 +224,10 @@ class Battlesnake(object):
           print(f"Move from {coords} {m.cmd()} to {new_coords} is {evaluated_move.explanation()}")
           return evaluated_move
 
-        # TODO: This should create a list of evaluated_moves, then select randomly from the ones
-        # that have good results.
-
-        # Choose a random direction to move in
+        # Evaluate the possible moves to find smart ones.
         evaluated_moves = list(sorted(map(lambda m: instrumented_evaluate_move(coords, m), ALL_MOVES), key=lambda m: m.score(), reverse=True))
         smart_moves = list(filter(lambda m: m.score() >= evaluated_moves[0].score(), evaluated_moves))
+        # From the smart moves, choose a random direction to move in
         cmd = random.choice(smart_moves).cmd()
 
         # Go 10 moves of our own, evaluating the 4 moves each time.
