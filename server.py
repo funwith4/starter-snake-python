@@ -16,6 +16,7 @@ DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
 ILLEGAL = -2
 STUCK = 0.1
+
 LOW_HEALTH_THRESHOLD = 20;
 
 class Move(object):
@@ -131,7 +132,7 @@ class Battlesnake(object):
 
         def moves(delta):
           (dx, dy) = delta
-          return dx + dy
+          return abs(dx) + abs(dy)
 
         def previous_move(snake):
           body = snake["body"]  # The first point in the body is the head.
@@ -159,7 +160,6 @@ class Battlesnake(object):
           #    - TODO: If we _know_ the other_snake is going there and we definitely win, it's good.
           #    - If the other_snake might go somewhere else, we need to discount the score.
           #    
-          #  - Find food if health is low.
           #  - Avoid food when value is low (high health, no other snakes, short snakes).
 
           if not is_in_bounds(new_coords):
@@ -234,16 +234,43 @@ class Battlesnake(object):
 
           return EvaluatedMove(m, 1, "legal")
 
-        def instrumented_evaluate_move(coords, m):
-          evaluated_move = evaluate_move(coords, m)
-          new_coords = apply_move(coords, evaluated_move)
-          print(f"Move from {coords} {m.cmd()} to {new_coords} is {evaluated_move.explanation()}")
-          return evaluated_move
+        def take_best_class_of_scores(iterable):
+          lst = list(iterable)
+          lst.sort(key=lambda m: m.score(), reverse=True)
+          return filter(lambda m: m.score() >= lst[0].score(), lst)
 
+        def evaluate_food_move(coords, m):
+          new_coords = apply_move(coords, m)
+          closest_food_distance = min(moves(delta(new_coords, food_coords)) for food_coords in map(tuple_from_d, data["board"]["food"]))
+          return EvaluatedMove(m, (w*h)-closest_food_distance, f"Food boost (d={closest_food_distance}, on move={m})")
+
+        
         # Evaluate the possible moves to find smart ones.
-        evaluated_moves = list(sorted(map(lambda m: instrumented_evaluate_move(coords, m), ALL_MOVES), key=lambda m: m.score(), reverse=True))
-        smart_moves = list(filter(lambda m: m.score() >= evaluated_moves[0].score(), evaluated_moves))
-        cmd = random.choice(smart_moves).cmd()
+        evaluated_moves = map(lambda m: evaluate_move(coords, m), ALL_MOVES)
+        smart_moves = take_best_class_of_scores(evaluated_moves)
+        # if DEBUG:
+        #   evaluated_moves = list(evaluated_moves)
+        #   for em in evaluated_moves:
+        #     new_coords = apply_move(coords, em)
+        #     print(f"  Evaluated Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+        
+        # If we're low on health, recompute smart moves by moving toward food.
+        if data["you"]["health"] < LOW_HEALTH_THRESHOLD:
+          evaluated_food_moves = map(lambda m: evaluate_food_move(coords, m), smart_moves)
+          smart_moves = take_best_class_of_scores(evaluated_food_moves)
+        #   if DEBUG:
+        #     evaluated_food_moves = list(evaluated_food_moves)
+        #     for em in evaluated_food_moves:
+        #       new_coords = apply_move(coords, em)
+        #       print(f"  Evaluated Food Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+
+        final_moves = list(smart_moves)
+        if DEBUG:
+            for em in final_moves:
+              new_coords = apply_move(coords, em)
+              print(f"  Final Random Choice from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+
+        cmd = random.choice(final_moves).cmd()
 
         # Go 10 moves of our own, evaluating the 4 moves each time.
         # Each of those will require 1 movement of each other snake. Choose the best one.
