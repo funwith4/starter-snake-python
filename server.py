@@ -265,10 +265,10 @@ class Battlesnake(object):
         #       print(f"  Evaluated Food Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
 
         final_moves = list(smart_moves)
-        if DEBUG:
-            for em in final_moves:
-              new_coords = apply_move(coords, em)
-              print(f"  Final Random Choice from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+        #if DEBUG:
+        #    for em in final_moves:
+        #      new_coords = apply_move(coords, em)
+        #      print(f"  Final Random Choice from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
 
         cmd = random.choice(final_moves).cmd()
 
