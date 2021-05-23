@@ -7,6 +7,7 @@ import cherrypy
 This is a simple Battlesnake server written in Python.
 For instructions see https://github.com/BattlesnakeOfficial/starter-snake-python/README.md
 """
+DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
 ILLEGAL = -2
 STUCK = 0.1
@@ -116,6 +117,8 @@ class Battlesnake(object):
         def evaluate_move(coords, m, depth=0):
           new_coords = apply_move(coords, m)
           
+          # TODO:
+          #  - 
           if not is_in_bounds(new_coords):
             return EvaluatedMove(m, ILLEGAL, "out of bounds")
           if is_in_body(new_coords, data["you"]["body"]):
@@ -133,7 +136,7 @@ class Battlesnake(object):
             # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
             if new_coords in potential_head_positions_after_applying_moves(other_snake):
               if i_can_eat(other_snake):
-                # This doesn't take food into account.
+                # TODO: This doesn't take food into account.
                 return EvaluatedMove(m, 2, "potential h2h and we'd win")
               else:
                 return EvaluatedMove(m, 0.2, "potential h2h and we'd lose")
@@ -142,8 +145,8 @@ class Battlesnake(object):
           # Don't go there if space < length.
           grid = {}
           for snake in data["board"].get("snakes", []):
-            grid[tuple_from_d(other_snake["head"])] = 1
-            for b in other_snake["body"]:
+            grid[tuple_from_d(snake["head"])] = 1
+            for b in snake["body"]:
               grid[tuple_from_d(b)] = 1
           
           def capped_flood_count(c, cap):
@@ -162,17 +165,24 @@ class Battlesnake(object):
             return cnt
 
           length = data["you"]["length"]
-          area = capped_flood_count(new_coords, length)
-          #print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
+          length_with_overhead = length * 2
+          # We +2 for head and the spot used by new_coords.
+          # We *2 as some arbitrary "we need space" metric.
+          area = capped_flood_count(new_coords, length_with_overhead)
+          # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
           
-          if length > area:
+          if length_with_overhead > area:
             # boost the score by the area, so if we're running out of space
             # we choose the biggest space.
-            return EvaluatedMove(m, STUCK + 0.001 * area, "not going in there, looks like we'll get stuck")
+            return EvaluatedMove(m, STUCK + 0.00001 * area, f"prefer not going there, looks like we'll get stuck (area={area})")
           #Recursive evaluation, but not as good as flood_fill.
           #if depth < 3 and all(map(lambda m: evaluate_move(new_coords, m, depth+1).score() <= STUCK, ALL_MOVES)):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
             #  print(f"-- From {new_coords}, {m1}")
+
+          # TODO: Find food if health is low.
+          # TODO: Avoid food when value is low (no other snakes, short snakes).
+          # 
 
           return EvaluatedMove(m, 1, "legal")
 
