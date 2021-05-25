@@ -18,14 +18,14 @@ ILLEGAL = -2
 STUCK = 0.1
 
 LOW_HEALTH_THRESHOLD = 20;
-
+   
 class Move(object):
   def __init__(self, cmd, adjuster):
     self._cmd = cmd
     self._adjuster = adjuster
 
   def __str__(self):
-    print("Move(%s)", self._cmd)
+    return f"Move(%{self._cmd}"
   
   def cmd(self):
     return self._cmd
@@ -36,6 +36,15 @@ class Move(object):
   def __eq__(self, other):
     if not isinstance(other, self.__class__): return False
     return self._cmd == other._cmd and self._adjuster == other._adjuster  
+
+  def ApplyTo(self, coord):
+    (dx, dy) = self._adjuster
+    return Coord(coord.x() + dx, coord.y() + dy)
+
+ALL_MOVES = [Move("up", (0,1)),
+             Move("down", (0, -1)),
+             Move("left", (-1, 0)),
+             Move("right", (1, 0))]
 
 class EvaluatedMove(Move):
   def __init__(self, m, score, annotation):
@@ -56,12 +65,93 @@ class EvaluatedMove(Move):
     return f"{desc}: {self._annotation}"
 
   def __str__(self):
-    return f"Move {self.cmd()} is {self.explanation()}"
+    return f"EvalutedMove {self.cmd()} is {self.explanation()}"
 
-ALL_MOVES = [Move("up", (0,1)),
-             Move("down", (0, -1)),
-             Move("left", (-1, 0)),
-             Move("right", (1, 0))]
+class Coord(object):
+  def __init__(self, x, y):
+    self._coords = (x, y)
+
+  def FromDict(d):
+    return Coord(d['x'], d['y'])
+
+  def __str__(self):
+    return f"{self._coords}"
+  
+  def x(self):
+    return self._coords[0]
+
+  def y(self):
+    return self._coords[1]
+
+  def __eq__(self, other):
+    if not isinstance(other, self.__class__): return False
+    return self._coords == other._coords
+
+  def __hash__(self):
+    return hash(self._coords)
+
+class Board(object):
+  def __init__(self, w, h):
+    self._w = w
+    self._h = h
+
+  def FromDict(d):
+    return Board(w=d["width"], h=d["height"])
+
+  def width(self):
+    return self._w
+
+  def height(self):
+    return self._h
+
+  def IsInBounds(self, c):
+    if c.x() < 0 or c.x() >= self._w: return False
+    if c.y() < 0 or c.y() >= self._h: return False
+    return True
+
+class Snake(object):
+  def __init__(self):
+    pass
+
+  def FromDict(d):
+    s = Snake()
+    s._length = d["length"]
+    s._body = list(map(Coord.FromDict, d["body"]))
+    return s
+
+  def __str__(self):
+    return f"Snake@{self.head()}"
+  
+  def length(self):
+    return self._length
+
+  def head(self):
+    return self._body[0]
+  
+  def body(self):
+    return self._body
+
+  def PreviousMove(self):
+    "Returns a Move or None if none could be determined."
+    if len(self._body) < 2: return None
+    previous_head = self._body[1]
+    for m in ALL_MOVES:
+      if self.head() == m.ApplyTo(previous_head):
+        return m
+    if DEBUG:
+      raise RuntimeError(f"Unable to determine previous move from body: {self.body}")
+    return None
+  
+  def PossibleNextHeadCoords(self):
+    return list(map(lambda m: m.ApplyTo(self.head()), ALL_MOVES))
+
+  def Collides(self, c):
+    #print(f"{c} is it in {self._body}")
+    return c in self._body
+
+  def CanEat(self, other_snake):
+    return self._length > other_snake._length
+
 
 class Battlesnake(object):
     @cherrypy.expose
@@ -98,32 +188,11 @@ class Battlesnake(object):
         # TODO: Use the information in cherrypy.request.json to decide your next move.
         data = cherrypy.request.json
 
-        def tuple_from_d(coord_dict):
-          return (coord_dict["x"], coord_dict["y"])
-
-        def apply_move(coord, m):
-          (x, y) = coord
-          (dx, dy) = m.adjuster()
-          return ((x+dx), (y+dy))
-
-        (h, w) = (data["board"]["height"], data["board"]["width"])
-        coords = tuple_from_d(data["you"]["head"])
-        
-        def is_in_bounds(c):
-          (x, y) = c
-          if x < 0 or x >= w: return False
-          if y < 0 or y >= h: return False
-          return True
-
-        def is_in_body(c, body):
-          # TODO: This could probably assume that the last segment would be gone.
-          return c in map(tuple_from_d, body)
-
-        def i_can_eat(other_snake):
-          return data["you"]["length"] > other_snake["length"]
-
-        def potential_head_positions_after_applying_moves(other_snake):
-          return list(map(lambda m: apply_move(tuple_from_d(other_snake["head"]), m), ALL_MOVES))
+        board = Board.FromDict(data["board"])
+        all_snakes = list(map(Snake.FromDict, data["board"]["snakes"]))
+        this_snake = Snake.FromDict(data["you"])
+        other_snakes = list(map(Snake.FromDict,
+            filter(lambda s: s["id"] != data["you"]["id"], data["board"]["snakes"])))
 
         def delta(coord1, coord2):
           (x1, y1) = coord1
@@ -134,25 +203,8 @@ class Battlesnake(object):
           (dx, dy) = delta
           return abs(dx) + abs(dy)
 
-        def previous_move(snake):
-          body = snake["body"]  # The first point in the body is the head.
-          if len(body) < 2: return None
-          (head_x, head_y) = tuple_from_d(body[0])
-          (prior_head_x, prior_head_y) = tuple_from_d(body[1])
-          delta = (head_x - prior_head_x, head_y - prior_head_y)
-          for m in ALL_MOVES:
-            if delta == m.adjuster(): return m
-          if DEBUG:
-            raise RuntimeError(f"Unable to determine previous move from body: {body}, delta: {delta}")
-          return None
-    
-        def apply_move(coord, m):
-          (x, y) = coord
-          (dx, dy) = m.adjuster()
-          return ((x+dx), (y+dy))
-
-        def evaluate_move(coords, m, depth=0):
-          new_coords = apply_move(coords, m)
+        def evaluate_move(snake, m):
+          new_coords = m.ApplyTo(this_snake.head())
           
           # TODO:
           #  - We had a bug where we may return an EvaluatedMove, but didn't realize that move put us in to a too-small area, because we didn't fall through to the fill_count.
@@ -162,24 +214,22 @@ class Battlesnake(object):
           #    
           #  - Avoid food when value is low (high health, no other snakes, short snakes).
 
-          if not is_in_bounds(new_coords):
+          #print(f"Evalution:{this_snake}, from {coords} to {new_coords}")
+          if not board.IsInBounds(new_coords):
             return EvaluatedMove(m, ILLEGAL, "out of bounds")
-          if is_in_body(new_coords, data["you"]["body"]):
+          if this_snake.Collides(new_coords):
             return EvaluatedMove(m, DEATH, "collides with our own body")
-          for other_snake in data["board"].get("snakes", []):
-            # NB: We ourselves are an 'other_snake'.
-            if other_snake["id"] == data["you"]["id"]: continue
-            if is_in_body(new_coords, other_snake["body"]):
+          for other_snake in other_snakes:
+            if other_snake.Collides(new_coords) and new_coords != other_snake.head():
               return EvaluatedMove(m, DEATH, "collides with another snake's body")
 
           # Use flood-fill to compute space around new_coords.
           # Don't go there if space < length.
           grid = {}
-          for snake in data["board"].get("snakes", []):
-            grid[tuple_from_d(snake["head"])] = 1
-            for b in snake["body"]:
-              grid[tuple_from_d(b)] = 1
-          
+          for snake in all_snakes:
+            for b in snake.body():
+              grid[b] = 1
+
           def capped_flood_count(c, cap):
             cnt = 0
             q = [c]
@@ -190,15 +240,13 @@ class Battlesnake(object):
                 #print(f"     considering {n} in the area") 
                 cnt += 1
                 if cnt >= cap: return cnt
-                for nc in map(lambda m: apply_move(n, m),  ALL_MOVES):
-                  if is_in_bounds(nc):
+                for nc in map(lambda m: m.ApplyTo(n),  ALL_MOVES):
+                  if board.IsInBounds(nc):
                     q.append(nc)  
             return cnt
 
-          length = data["you"]["length"]
-
           # We *2 as some arbitrary "we need space" metric.   
-          length_with_overhead = length * 2
+          length_with_overhead = this_snake.length() * 2
 
           area = capped_flood_count(new_coords, length_with_overhead)
           # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
@@ -212,21 +260,18 @@ class Battlesnake(object):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
             #  print(f"-- From {new_coords}, {m1}")
 
-          for other_snake in data["board"].get("snakes", []):
-            # NB: We ourselves are an 'other_snake'.
-            if other_snake["id"] == data["you"]["id"]: continue
-
+          for other_snake in other_snakes:
             # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
 
             # print(f"OtherSnake: {other_snake['head']}, ProjectedCoords:{apply_move(tuple_from_d(other_snake['head']), previous_move(other_snake))}")
 
-            if new_coords in potential_head_positions_after_applying_moves(other_snake):
-              if i_can_eat(other_snake):
+            if new_coords in other_snake.PossibleNextHeadCoords():
+              if this_snake.CanEat(other_snake):
                 # TODO: This doesn't take food into account.
                 return EvaluatedMove(m, 2, "potential h2h and we'd win")
               else:
                 # All things equal, we'll assume it's more likely that the other snake moves in the same direction.
-                if new_coords == apply_move(tuple_from_d(other_snake["head"]), previous_move(other_snake)):
+                if new_coords == other_snake.PreviousMove().ApplyTo(other_snake.head()):
                   return EvaluatedMove(m, 0.21, "potential h2h and we'd lose (constant direction)")
                 else:
                   return EvaluatedMove(m, 0.22, "potential h2h and we'd lose")
@@ -239,24 +284,23 @@ class Battlesnake(object):
           lst.sort(key=lambda m: m.score(), reverse=True)
           return filter(lambda m: m.score() >= lst[0].score(), lst)
 
-        def evaluate_food_move(coords, m):
-          new_coords = apply_move(coords, m)
-          closest_food_distance = min(moves(delta(new_coords, food_coords)) for food_coords in map(tuple_from_d, data["board"]["food"]))
-          return EvaluatedMove(m, (w*h)-closest_food_distance, f"Food boost (d={closest_food_distance}, on move={m})")
-
+        def evaluate_food_move(snake, m):
+          new_coords = m.ApplyTo(snake.head())
+          closest_food_distance = min(moves(delta(new_coords, food_coords)) for food_coords in map(Coord.FromDict, data["board"]["food"]))
+          return EvaluatedMove(m, (board.width()*board.height())-closest_food_distance, f"Food boost (d={closest_food_distance}, on move={m})")
         
         # Evaluate the possible moves to find smart ones.
-        evaluated_moves = map(lambda m: evaluate_move(coords, m), ALL_MOVES)
+        evaluated_moves = map(lambda m: evaluate_move(this_snake, m), ALL_MOVES)
         smart_moves = take_best_class_of_scores(evaluated_moves)
-        # if DEBUG:
-        #   evaluated_moves = list(evaluated_moves)
-        #   for em in evaluated_moves:
-        #     new_coords = apply_move(coords, em)
-        #     print(f"  Evaluated Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+        if DEBUG:
+          evaluated_moves = list(evaluated_moves)
+          for em in evaluated_moves:
+            new_coords = em.ApplyTo(this_snake.head())
+            print(f"  Evaluated Move from {this_snake.head()} {em.cmd()} to {new_coords} is {em.explanation()}")
         
         # If we're low on health, recompute smart moves by moving toward food.
         if data["you"]["health"] < LOW_HEALTH_THRESHOLD:
-          evaluated_food_moves = map(lambda m: evaluate_food_move(coords, m), smart_moves)
+          evaluated_food_moves = map(lambda m: evaluate_food_move(this_snake.head(), m), smart_moves)
           smart_moves = take_best_class_of_scores(evaluated_food_moves)
         #   if DEBUG:
         #     evaluated_food_moves = list(evaluated_food_moves)
@@ -265,10 +309,10 @@ class Battlesnake(object):
         #       print(f"  Evaluated Food Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
 
         final_moves = list(smart_moves)
-        #if DEBUG:
-        #    for em in final_moves:
-        #      new_coords = apply_move(coords, em)
-        #      print(f"  Final Random Choice from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+        if DEBUG:
+            for em in final_moves:
+              new_coords = em.ApplyTo(this_snake.head())
+              print(f"  Final Random Choice from {this_snake.head()} {em.cmd()} to {new_coords} is {em.explanation()}")
 
         cmd = random.choice(final_moves).cmd()
 
