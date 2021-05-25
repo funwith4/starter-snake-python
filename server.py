@@ -327,12 +327,12 @@ class Battlesnake(object):
               if other_snake.CanEat(this_snake)
             ]
             if not snake_distances: return (None, None)
-            return min(snake_distances)
+            return sorted(snake_distances, key=lambda t: t[0])[0]
 
           (big_snake_distance, big_snake) = compute_big_snake_distance()
           if (big_snake_distance is not None and
              big_snake_distance <= BIG_SNAKE_DISTANCE_THRESHOLD):
-           return EvaluatedMove(m, 1 - 1.0/big_snake_distance, f"keeping our distance from a big snake (other_snake={big_snake.head()}, distance={big_snake_distance}")  
+           return EvaluatedMove(m, 1 - 1.0/(10*big_snake_distance), f"keeping our distance from a big snake (other_snake={big_snake.head()}, distance={big_snake_distance}")  
 
           return EvaluatedMove(m, 1, "legal")
 
@@ -375,7 +375,7 @@ class Battlesnake(object):
 
         # Go 10 moves of our own, evaluating the 4 moves each time.
         # Each of those will require 1 movement of each other snake. Choose the best one.
-        print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
+        # print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
         return {"move": cmd}
 
     @cherrypy.expose
