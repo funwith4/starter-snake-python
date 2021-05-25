@@ -9,13 +9,14 @@ For instructions see https://github.com/BattlesnakeOfficial/starter-snake-python
 """
 
 # Debug mode is more willing to raise errors.
-DEBUG = 1
-
+DEBUG = 0
 
 DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
 ILLEGAL = -2
 STUCK = 0.1
+
+BIG_SNAKE_DISTANCE_THRESHOLD = 4
 
 LOW_HEALTH_THRESHOLD = 20;
    
@@ -177,8 +178,8 @@ class Snake(object):
     return s
 
 def trapped_area(board, snake, other_snakes, cap):
-  print(f"reference snake: {snake}")
-  print(f"other snakes: {other_snakes}")
+  #print(f"reference snake: {snake}")
+  #print(f"other snakes: {other_snakes}")
   # Use flood-fill to compute space around new_coords.
   # Don't go there if space < length.
   grid = {}
@@ -190,7 +191,7 @@ def trapped_area(board, snake, other_snakes, cap):
     for b in other_snake.body():
       grid[b] = 1
 
-  print(f"GRID:{grid}")
+  #print(f"GRID:{grid}")
   def capped_flood_count(c, cap):
     cnt = 0
     q = [c]
@@ -244,7 +245,8 @@ class Battlesnake(object):
         # TODO: Use the information in cherrypy.request.json to decide your next move.
         data = cherrypy.request.json
 
-        print(f">> Handling turn {data['turn']}")
+        if DEBUG:
+          print(f">> Handling turn {data['turn']}")
         board = Board.FromDict(data["board"])
         all_snakes = list(map(Snake.FromDict, data["board"]["snakes"]))
         this_snake = Snake.FromDict(data["you"])
@@ -255,9 +257,7 @@ class Battlesnake(object):
           return list(filter(lambda s: s.id() != other_snake.id(), other_snakes))
         
         def delta(coord1, coord2):
-          (x1, y1) = coord1
-          (x2, y2) = coord2
-          return (x1 - x2, y1 - y2)
+          return (coord1.x() - coord2.x(), coord1.y() - coord2.y())
 
         def moves(delta):
           (dx, dy) = delta
@@ -285,24 +285,19 @@ class Battlesnake(object):
 
           # We *2 as some arbitrary "we need space" metric.   
           length_with_overhead = this_snake.length() * 2
-
           area = trapped_area(board, this_snake.Project(m), other_snakes, length_with_overhead)
-          # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
-          
-          if length_with_overhead > area:
+          # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")   
+          if area < length_with_overhead:
             # boost the score by the area, so if we're running out of space
             # we choose the biggest space.
             return EvaluatedMove(m, STUCK + 0.00001 * area, f"prefer not going there, looks like we'll get stuck (area={area})")
+
           #Recursive evaluation, but not as good as flood_fill.
           #if depth < 3 and all(map(lambda m: evaluate_move(new_coords, m, depth+1).score() <= STUCK, ALL_MOVES)):
           #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
             #  print(f"-- From {new_coords}, {m1}")
 
           for other_snake in other_snakes:
-            # print(f"Eval: {new_coords} in {head_positions_after_applying_moves(other_snake)}, {new_coords in head_positions_after_applying_moves(other_snake)}")
-
-            # print(f"OtherSnake: {other_snake['head']}, ProjectedCoords:{apply_move(tuple_from_d(other_snake['head']), previous_move(other_snake))}")
-
             if new_coords in other_snake.PossibleNextHeadCoords():
               if this_snake.CanEat(other_snake):
                 # TODO: This doesn't take food into account.
@@ -317,11 +312,28 @@ class Battlesnake(object):
 
             # TODO: This doesn't take into account movement of the other_snakes.
             area = trapped_area(board, other_snake, [this_snake.Project(m)] + other_snakes_without(other_snake), other_snake.length()+1)
-            
-            #this_snake.Project(m), other_snakes, other_snake.length()+1)
             if area <= other_snake.length():
               #raise RuntimeError(f"Attempting trap of {other_snake} with {this_snake} by moving {m} into {area} blocks")
               return EvaluatedMove(m, 1.5 - 0.001*area, "attempt at trapping (area:%s)")
+
+          # TODO: Squeeze attack.
+
+          # TODO: If this puts me within reach of a bigger snake,
+          # then discount the value.
+          def compute_big_snake_distance():
+            snake_distances = [
+              (moves(delta(new_coords, other_snake.head())), other_snake)
+              for other_snake in other_snakes
+              if other_snake.CanEat(this_snake)
+            ]
+            if not snake_distances: return (None, None)
+            return min(snake_distances)
+
+          (big_snake_distance, big_snake) = compute_big_snake_distance()
+          if (big_snake_distance is not None and
+             big_snake_distance <= BIG_SNAKE_DISTANCE_THRESHOLD):
+           return EvaluatedMove(m, 1 - 1.0/big_snake_distance, f"keeping our distance from a big snake (other_snake={big_snake.head()}, distance={big_snake_distance}")  
+
           return EvaluatedMove(m, 1, "legal")
 
         def take_best_class_of_scores(iterable):
