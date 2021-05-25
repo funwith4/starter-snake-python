@@ -25,8 +25,11 @@ class Move(object):
     self._adjuster = adjuster
 
   def __str__(self):
-    return f"Move(%{self._cmd}"
-  
+    return f"Move({self._cmd})"
+
+  def __repr__(self):
+    return self.__str__()
+
   def cmd(self):
     return self._cmd
 
@@ -35,7 +38,7 @@ class Move(object):
   
   def __eq__(self, other):
     if not isinstance(other, self.__class__): return False
-    return self._cmd == other._cmd and self._adjuster == other._adjuster  
+    return self._cmd == other._cmd and self._adjuster == other._adjuster 
 
   def ApplyTo(self, coord):
     (dx, dy) = self._adjuster
@@ -67,6 +70,9 @@ class EvaluatedMove(Move):
   def __str__(self):
     return f"EvalutedMove {self.cmd()} is {self.explanation()}"
 
+  def __repr__(self):
+    return self.__str__()
+
 class Coord(object):
   def __init__(self, x, y):
     self._coords = (x, y)
@@ -77,6 +83,9 @@ class Coord(object):
   def __str__(self):
     return f"{self._coords}"
   
+  def __repr__(self):
+    return self.__str__()
+
   def x(self):
     return self._coords[0]
 
@@ -115,13 +124,20 @@ class Snake(object):
 
   def FromDict(d):
     s = Snake()
+    s._id = d["id"]
     s._length = d["length"]
     s._body = list(map(Coord.FromDict, d["body"]))
     return s
 
   def __str__(self):
-    return f"Snake@{self.head()}"
+    return f"Snake@{self._body}"
   
+  def __repr__(self):
+    return self.__str__()
+
+  def id(self):
+    return self._id
+
   def length(self):
     return self._length
 
@@ -151,6 +167,46 @@ class Snake(object):
 
   def CanEat(self, other_snake):
     return self._length > other_snake._length
+
+  def Project(self, m):
+    # TODO: This doesn't take food into account.
+    s = Snake()
+    s._id = self._id
+    s._length = self._length
+    s._body = [m.ApplyTo(self.head())] + self.body()[:-1]
+    return s
+
+def trapped_area(board, snake, other_snakes, cap):
+  print(f"reference snake: {snake}")
+  print(f"other snakes: {other_snakes}")
+  # Use flood-fill to compute space around new_coords.
+  # Don't go there if space < length.
+  grid = {}
+  # Don't initialize head, because that's where we start flood.
+  for b in snake.body():
+      if b != snake.head():
+        grid[b] = 1
+  for other_snake in other_snakes:
+    for b in other_snake.body():
+      grid[b] = 1
+
+  print(f"GRID:{grid}")
+  def capped_flood_count(c, cap):
+    cnt = 0
+    q = [c]
+    while q:
+      n = q.pop(0)
+      if not n in grid:
+        grid[n] = 1
+        #print(f"     considering {n} in the area") 
+        cnt += 1
+        if cnt >= cap: return cnt
+        for nc in map(lambda m: m.ApplyTo(n),  ALL_MOVES):
+          if board.IsInBounds(nc):
+            q.append(nc)
+    return cnt
+
+  return capped_flood_count(snake.head(), cap)
 
 
 class Battlesnake(object):
@@ -188,12 +244,16 @@ class Battlesnake(object):
         # TODO: Use the information in cherrypy.request.json to decide your next move.
         data = cherrypy.request.json
 
+        print(f">> Handling turn {data['turn']}")
         board = Board.FromDict(data["board"])
         all_snakes = list(map(Snake.FromDict, data["board"]["snakes"]))
         this_snake = Snake.FromDict(data["you"])
         other_snakes = list(map(Snake.FromDict,
             filter(lambda s: s["id"] != data["you"]["id"], data["board"]["snakes"])))
 
+        def other_snakes_without(other_snake):
+          return list(filter(lambda s: s.id() != other_snake.id(), other_snakes))
+        
         def delta(coord1, coord2):
           (x1, y1) = coord1
           (x2, y2) = coord2
@@ -223,32 +283,10 @@ class Battlesnake(object):
             if other_snake.Collides(new_coords) and new_coords != other_snake.head():
               return EvaluatedMove(m, DEATH, "collides with another snake's body")
 
-          # Use flood-fill to compute space around new_coords.
-          # Don't go there if space < length.
-          grid = {}
-          for snake in all_snakes:
-            for b in snake.body():
-              grid[b] = 1
-
-          def capped_flood_count(c, cap):
-            cnt = 0
-            q = [c]
-            while q:
-              n = q.pop(0)
-              if not n in grid:
-                grid[n] = 1
-                #print(f"     considering {n} in the area") 
-                cnt += 1
-                if cnt >= cap: return cnt
-                for nc in map(lambda m: m.ApplyTo(n),  ALL_MOVES):
-                  if board.IsInBounds(nc):
-                    q.append(nc)  
-            return cnt
-
           # We *2 as some arbitrary "we need space" metric.   
           length_with_overhead = this_snake.length() * 2
 
-          area = capped_flood_count(new_coords, length_with_overhead)
+          area = trapped_area(board, this_snake.Project(m), other_snakes, length_with_overhead)
           # print(f"-- We are length {length}, but the area around {new_coords} is at least {area}")
           
           if length_with_overhead > area:
@@ -277,6 +315,13 @@ class Battlesnake(object):
                   return EvaluatedMove(m, 0.22, "potential h2h and we'd lose")
                 raise RuntimeError("Inspect me")
 
+            # TODO: This doesn't take into account movement of the other_snakes.
+            area = trapped_area(board, other_snake, [this_snake.Project(m)] + other_snakes_without(other_snake), other_snake.length()+1)
+            
+            #this_snake.Project(m), other_snakes, other_snake.length()+1)
+            if area <= other_snake.length():
+              #raise RuntimeError(f"Attempting trap of {other_snake} with {this_snake} by moving {m} into {area} blocks")
+              return EvaluatedMove(m, 1.5 - 0.001*area, "attempt at trapping (area:%s)")
           return EvaluatedMove(m, 1, "legal")
 
         def take_best_class_of_scores(iterable):
