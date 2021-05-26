@@ -317,9 +317,9 @@ class Battlesnake(object):
               return EvaluatedMove(m, 1.5 - 0.001*area, "attempt at trapping (area:%s)")
 
           # TODO: Squeeze attack.
+          # def can_squeeze(this_snake, other_snake):
 
-          # TODO: If this puts me within reach of a bigger snake,
-          # then discount the value.
+          # If this puts this_snake within reach of a bigger snake, then discount the value.
           def compute_big_snake_distance():
             snake_distances = [
               (moves(delta(new_coords, other_snake.head())), other_snake)
