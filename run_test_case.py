@@ -27,55 +27,87 @@ def frame_to_snake(frame_snake):
   d['length'] = len(frame_snake['body'])
   return d
   
-def frame_to_you_snake(frame):
+def guess_you_snake_id(frame):
   my_snakes = ["Evie", "Starter Snake Python"]
   name_counts = {}
-  you_snake = None
+  you_snake_id = None
   for snake in frame["snakes"]:
     name_counts[snake["name"]] = name_counts.get(snake["name"], 0) + 1
-    if snake["name"] in my_snakes:
-      you_snake = snake
+    if snake["name"] in my_snakes: you_snake_id = snake["id"]
   
   my_snake_count = sum(name_counts.get(n, 0) for n in my_snakes)
   if my_snake_count != 1:
     raise RuntimeError(f"Unable to determine 'you' snake:{name_counts}")
+  return you_snake_id
 
-  return frame_to_snake(you_snake)
-
-def game_and_frame_to_move_request(game, frame):
+def game_and_frame_to_move_request(game, frame, you_snake_id):
   return {
    "turn": frame["turn"],
-   "you": frame_to_you_snake(frame),
+   "you": next(frame_to_snake(s) for s in frame["snakes"] if s["id"] == you_snake_id),
    "board": {
      "width": game["width"],
      "height": game["height"],
-     "snakes": (frame_to_snake(s) for s in frame["snakes"]),
+     "snakes": list(frame_to_snake(s) for s in frame["snakes"]),
      "food": frame["food"],
    }
   }
 
-def analyze_turn(game_id, turn_id):
+def load_request(game_id, turn_id, you_snake_id=None):
   game_json = recursive_lower_keys(json.load(open(f"testcases/{game_id}.txt", 'r')))
   turn_json = recursive_lower_keys(json.load(open(f"testcases/{game_id}.{turn_id}.txt", 'r')))
   
-  # print(f"{turn_json}")
+  frame=turn_json['frames'][0]
+  if you_snake_id is None:
+    you_snake_id = guess_you_snake_id(frame)
   
-  req = game_and_frame_to_move_request(game_json['game'], turn_json['frames'][0])
+  return game_and_frame_to_move_request(game_json['game'], frame, you_snake_id)
   
-  cmd = snake.move(req)
-  print(f"See: https://play.battlesnake.com/g/{game_id}/?turn={turn_id}\ngame_id={game_id}, turn_id={turn_id}, move={cmd}")
   
 game_id = 'c27ec142-7d49-4843-8ccb-a8d991e7f8fe'
 turn_id = 35
 
-turns = [
-  ("1887f9a7-4b82-4ab4-ba09-ac7d13e6d91d", 64),
-  ("4527eea5-112d-4751-98e3-34ff5043978e", 20),
-  ("5cc9bc46-9e1d-4cb1-a81c-9f5f50064faa", 84),
-  ("b5596a02-b0fd-4362-b56f-dcc82ff49fa6", 226),
-  ("b5596a02-b0fd-4362-b56f-dcc82ff49fa6", 227),
-  ("c27ec142-7d49-4843-8ccb-a8d991e7f8fe", 35),
+tests = [
+  (("1887f9a7-4b82-4ab4-ba09-ac7d13e6d91d", 64),
+   ["down"]),  # Empirical
+  (("4527eea5-112d-4751-98e3-34ff5043978e", 20),
+   ["right"]),  # Empirical
+  (("5cc9bc46-9e1d-4cb1-a81c-9f5f50064faa", 84),
+   ["down", "up"]),  # Empirical
+  (("b5596a02-b0fd-4362-b56f-dcc82ff49fa6", 226),
+   ["left", "right"]),  # Empirical
+  (("b5596a02-b0fd-4362-b56f-dcc82ff49fa6", 227),
+   ["left", "right"]),  # Empirical
+  (("c27ec142-7d49-4843-8ccb-a8d991e7f8fe", 35),
+   ["left", "right"]),  # Empirical
+  (("ba06b5cb-a1ee-49c6-b717-a41a4b9be30b", 173),
+   ["left"]),  # Empirical
+  (("14cd922a-e15a-4d88-b753-37da9a96e371", 241, "gs_hmgHkJQvtSq6VKfpm4hBRGvd"),
+   ["down", "right"]),
+  (("14cd922a-e15a-4d88-b753-37da9a96e371", 241, "gs_STRtbf3HMt68PrVhyHcJvbJ6"),
+   ["right", "up"]),
 ]
 
-for game, turn in turns:
-  analyze_turn(game, turn)
+passed = []
+for (test_inputs, allowable_moves) in tests:
+    req = load_request(*test_inputs)
+    cmd = snake.move(req)
+
+    (game_id, turn_id)=test_inputs[0:2]
+    print(f"TEST: {test_inputs}")
+    print(f"  https://play.battlesnake.com/g/{game_id}/?turn={turn_id}")
+    if cmd in allowable_moves:
+      passed.append(test_inputs)
+      print(f"  PASSED")
+    else:
+      print(f"  FAIL:{cmd} is not in allowable_moves {allowable_moves}")
+
+#for (test_inputs, allowable_moves) in tests:
+#  state = "PASS" if test_inputs in passed else "FAIL"
+#  print(f"{state}: {test_inputs}")
+    
+if len(tests) == len(passed):
+  print(f"*** ALL TESTS PASSED ***")
+else:
+  x=f"{len(tests)-len(passed)}/{len(tests)}"
+  w=len(x)
+  print(f"{'*'*(21+w)}\n*** {x} TESTS FAILED ***\n{'*'*(21+w)}")

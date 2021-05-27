@@ -231,6 +231,9 @@ def move(data):
     #    - If the other_snake might go somewhere else, we need to discount the score.
     #    
     #  - Avoid food when value is low (high health, no other snakes, short snakes).
+    # Go 10 moves of our own, evaluating the 4 moves each time.
+    # Each of those will require 1 movement of each other snake. Choose the best one.
+    # print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
 
     #print(f"Evalution:{this_snake}, from {coords} to {new_coords}")
     if not board.IsInBounds(new_coords):
@@ -305,23 +308,27 @@ def move(data):
     return EvaluatedMove(m, (board.width()*board.height())-closest_food_distance, f"Food boost (d={closest_food_distance}, on move={m})")
   
   # Evaluate the possible moves to find smart ones.
-  evaluated_moves = map(lambda m: evaluate_move(this_snake, m), ALL_MOVES)
+  evaluated_moves = list(map(lambda m: evaluate_move(this_snake, m), ALL_MOVES))
   smart_moves = take_best_class_of_scores(evaluated_moves)
   if DEBUG:
-    evaluated_moves = list(evaluated_moves)
     for em in evaluated_moves:
       new_coords = em.ApplyTo(this_snake.head())
       print(f"  Evaluated Move from {this_snake.head()} {em.cmd()} to {new_coords} is {em.explanation()}")
   
   # If we're low on health, recompute smart moves by moving toward food.
-  if data["you"]["health"] < LOW_HEALTH_THRESHOLD:
-    evaluated_food_moves = map(lambda m: evaluate_food_move(this_snake, m), smart_moves)
+  def prefer_to_eat():
+    if data["you"]["health"] < LOW_HEALTH_THRESHOLD:
+      return True
+    if other_snakes and this_snake.length() <= max(s.length() for s in other_snakes):
+      return True
+
+  if prefer_to_eat():
+    evaluated_food_moves = list(map(lambda m: evaluate_food_move(this_snake, m), smart_moves))
     smart_moves = take_best_class_of_scores(evaluated_food_moves)
-  #   if DEBUG:
-  #     evaluated_food_moves = list(evaluated_food_moves)
-  #     for em in evaluated_food_moves:
-  #       new_coords = apply_move(coords, em)
-  #       print(f"  Evaluated Food Move from {coords} {em.cmd()} to {new_coords} is {em.explanation()}")
+    if DEBUG:
+      for em in evaluated_food_moves:
+        new_coords = em.ApplyTo(this_snake.head())
+        print(f"  Evaluated Food Move from {this_snake.head()} {em.cmd()} to {new_coords} is {em.explanation()}")
 
   final_moves = list(smart_moves)
   if DEBUG:
@@ -330,8 +337,3 @@ def move(data):
         print(f"  Final Random Choice from {this_snake.head()} {em.cmd()} to {new_coords} is {em.explanation()}")
 
   return random.choice(final_moves).cmd()
-
-
-    # Go 10 moves of our own, evaluating the 4 moves each time.
-    # Each of those will require 1 movement of each other snake. Choose the best one.
-    # print(f">> On turn {data['turn']}, moving {cmd} ({data['you']['id']})")
