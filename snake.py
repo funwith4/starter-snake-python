@@ -1,7 +1,7 @@
 import random
 
 # Debug mode is more willing to raise errors.
-DEBUG = 0
+DEBUG = 1
 
 DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
@@ -9,6 +9,7 @@ ILLEGAL = -2
 STUCK = 0.1
 
 BIG_SNAKE_DISTANCE_THRESHOLD = 4
+ENABLE_HUNGRY_UNLESS_BIGGEST = 0
 
 LOW_HEALTH_THRESHOLD = 20;
    
@@ -253,11 +254,6 @@ def move(data):
       # we choose the biggest space.
       return EvaluatedMove(m, STUCK + 0.00001 * area, f"prefer not going there, looks like we'll get stuck (area={area})")
 
-    #Recursive evaluation, but not as good as flood_fill.
-    #if depth < 3 and all(map(lambda m: evaluate_move(new_coords, m, depth+1).score() <= STUCK, ALL_MOVES)):
-    #  return EvaluatedMove(m, STUCK, "looks like we're stuck")
-      #  print(f"-- From {new_coords}, {m1}")
-
     for other_snake in other_snakes:
       if new_coords in other_snake.PossibleNextHeadCoords():
         if this_snake.CanEat(other_snake):
@@ -275,7 +271,7 @@ def move(data):
       area = trapped_area(board, other_snake, [this_snake.Project(m)] + other_snakes_without(other_snake), other_snake.length()+1)
       if area <= other_snake.length():
         #raise RuntimeError(f"Attempting trap of {other_snake} with {this_snake} by moving {m} into {area} blocks")
-        return EvaluatedMove(m, 1.5 - 0.001*area, "attempt at trapping (area:%s)")
+        return EvaluatedMove(m, 1.5 - 0.001*area, f"attempt at trapping (area:{area})")
 
     # TODO: Squeeze attack.
     # def can_squeeze(this_snake, other_snake):
@@ -319,7 +315,7 @@ def move(data):
   def prefer_to_eat():
     if data["you"]["health"] < LOW_HEALTH_THRESHOLD:
       return True
-    if other_snakes and this_snake.length() <= max(s.length() for s in other_snakes):
+    if ENABLE_HUNGRY_UNLESS_BIGGEST and other_snakes and this_snake.length() <= max(s.length() for s in other_snakes):
       return True
 
   if prefer_to_eat():

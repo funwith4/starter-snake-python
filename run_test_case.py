@@ -10,8 +10,6 @@ import snake
 # 'board.food'
 # 'board.width'
 # 'board.height'
-# 
-
 
 def recursive_lower_keys(t):
   if type(t) is dict:
@@ -63,9 +61,6 @@ def load_request(game_id, turn_id, you_snake_id=None):
   return game_and_frame_to_move_request(game_json['game'], frame, you_snake_id)
   
   
-game_id = 'c27ec142-7d49-4843-8ccb-a8d991e7f8fe'
-turn_id = 35
-
 tests = [
   (("1887f9a7-4b82-4ab4-ba09-ac7d13e6d91d", 64),
    ["down"]),  # Empirical
@@ -85,26 +80,32 @@ tests = [
    ["down", "right"]),
   (("14cd922a-e15a-4d88-b753-37da9a96e371", 241, "gs_STRtbf3HMt68PrVhyHcJvbJ6"),
    ["right", "up"]),
+  (("52d1a532-e018-41d5-afc0-b52b1eb230dc", 8),
+   ["left", "down"]),
+  (("14cd922a-e15a-4d88-b753-37da9a96e371", 65, "gs_Y3jwPVMMyVdmq6hQHq9HMtpF"),
+   ["left",
+    "up"  # Bad move, but that's what we do now- Attempt a trap.
+   ]),
 ]
 
 passed = []
 for (test_inputs, allowable_moves) in tests:
-    req = load_request(*test_inputs)
-    cmd = snake.move(req)
-
-    (game_id, turn_id)=test_inputs[0:2]
-    print(f"TEST: {test_inputs}")
-    print(f"  https://play.battlesnake.com/g/{game_id}/?turn={turn_id}")
-    if cmd in allowable_moves:
-      passed.append(test_inputs)
-      print(f"  PASSED")
-    else:
-      print(f"  FAIL:{cmd} is not in allowable_moves {allowable_moves}")
-
-#for (test_inputs, allowable_moves) in tests:
-#  state = "PASS" if test_inputs in passed else "FAIL"
-#  print(f"{state}: {test_inputs}")
-    
+    try:
+      req = load_request(*test_inputs)
+      cmd = snake.move(req)
+  
+      (game_id, turn_id)=test_inputs[0:2]
+      print(f"TEST: {test_inputs}")
+      print(f"  https://play.battlesnake.com/g/{game_id}/?turn={turn_id}")
+      if cmd in allowable_moves:
+        passed.append(test_inputs)
+        print(f"  PASSED")
+      else:
+        print(f"  FAIL: '{cmd}' is not in allowable_moves {allowable_moves}")
+    except Exception as e:
+      print(f"TEST: {test_inputs}")
+      print(f"  FAIL: Exception thrown: {e}")
+  
 if len(tests) == len(passed):
   print(f"*** ALL TESTS PASSED ***")
 else:

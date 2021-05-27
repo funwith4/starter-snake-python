@@ -20,7 +20,7 @@ class Battlesnake(object):
         print("REGISTER")
         return {
             "apiversion": "1",
-            "author": "",  # TODO: Your Battlesnake Username
+            "author": "funwith4",
             "color": "#22c710",
             "head": "tongue",
             "tail": "small-rattle",
@@ -42,7 +42,6 @@ class Battlesnake(object):
     def move(self):
         # This function is called on every turn of a game. It's how your snake decides where to move.
         # Valid moves are "up", "down", "left", or "right".
-        # TODO: Use the information in cherrypy.request.json to decide your next move.
         data = cherrypy.request.json
         cmd = snake.move(data)
         return {"move": cmd}
