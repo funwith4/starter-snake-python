@@ -1,7 +1,7 @@
 import random
 
 # Debug mode is more willing to raise errors.
-DEBUG = 1
+DEBUG = 0
 
 DEATH_AND_CHALLENGE_FAIL = -3
 DEATH = -1
@@ -10,6 +10,7 @@ STUCK = 0.1
 
 BIG_SNAKE_DISTANCE_THRESHOLD = 4
 ENABLE_HUNGRY_UNLESS_BIGGEST = 1
+ENABLE_TRAP_OTHER_SNAKE = 0
 
 LOW_HEALTH_THRESHOLD = 20;
    
@@ -268,11 +269,12 @@ def move(data):
           raise RuntimeError("Inspect me")
 
       # TODO: This doesn't take into account movement of the other_snakes.
-      area = trapped_area(board, other_snake, [this_snake.Project(m)] + other_snakes_without(other_snake), other_snake.length()+1)
-      if area <= other_snake.length():
-        #raise RuntimeError(f"Attempting trap of {other_snake} with {this_snake} by moving {m} into {area} blocks")
-        return EvaluatedMove(m, 1.5 - 0.001*area, f"attempt at trapping (area:{area})")
-
+      if ENABLE_TRAP_OTHER_SNAKE:
+        area = trapped_area(board, other_snake, [this_snake.Project(m)] + other_snakes_without(other_snake), other_snake.length()+1)
+        if area <= other_snake.length():
+          #raise RuntimeError(f"Attempting trap of {other_snake} with {this_snake} by moving {m} into {area} blocks")
+          return EvaluatedMove(m, 1.5 - 0.001*area, f"attempt at trapping (area:{area})")
+  
     # TODO: Squeeze attack.
     # def can_squeeze(this_snake, other_snake):
 
